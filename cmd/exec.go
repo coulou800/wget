@@ -3,9 +3,11 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
+
+	"wget/flag"
 
 	"github.com/spf13/cobra"
-	"wget/flag"
 )
 
 var rootCmd = &cobra.Command{
@@ -34,14 +36,32 @@ func init() {
 	rootCmd.Flags().StringVarP(&flag.Input, flag.INPUT, "i", "", "Downloading different files should be possible asynchronously")
 }
 
-func Exec(cmd *cobra.Command, args []string) func([]string) error {
-	if flag.Provided(flag.OUTPUT){
-		fmt.Println(*flag.GetValue(flag.OUTPUT).(*string))
+func Exec(cmd *cobra.Command, args []string) func(...any) error {
+	if flag.Provided(flag.BACKGROUND) {
+		return func(...any) error {
+			return runInBackground(args)
+		}
 	}
 
-	return defaultExec
+	return func(...any) error {
+		return defaultExec(args)
+	}
 }
 
 func defaultExec(args []string) error {
+	return nil
+}
+
+func runInBackground(args []string) error {
+	cmd := exec.Command(os.Args[0], args...)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+	err := cmd.Start()
+	if err != nil {
+		return err
+	}
+	fmt.Println("Running in background with PID", cmd.Process.Pid)
+	fmt.Println("Output will be written in wget-log", cmd.Process.Pid)
 	return nil
 }
