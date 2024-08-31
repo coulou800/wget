@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-
 	"wget/flag"
+	"wget/net"
 
 	"github.com/spf13/cobra"
 )
@@ -16,7 +16,7 @@ var rootCmd = &cobra.Command{
 	Long:  `This project aims to recreate some functionalities of wget using the Go programming language.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fn := Exec(cmd, args)
-		fn(args)
+		fn()
 	},
 }
 
@@ -28,6 +28,7 @@ func Execute() {
 	}
 	os.Exit(0)
 }
+
 func init() {
 	rootCmd.Flags().StringVarP(&flag.Output, flag.OUTPUT, "O", "", "Save the downloaded file under a different name")
 	rootCmd.Flags().StringVarP(&flag.Path, flag.PATH, "P", "", "Specify the directory to save the downloaded file")
@@ -36,32 +37,36 @@ func init() {
 	rootCmd.Flags().StringVarP(&flag.Input, flag.INPUT, "i", "", "Downloading different files should be possible asynchronously")
 }
 
-func Exec(cmd *cobra.Command, args []string) func(...any) error {
+func Exec(cmd *cobra.Command, args []string) func() {
 	if flag.Provided(flag.BACKGROUND) {
-		return func(...any) error {
-			return runInBackground(args)
+		return func() {
+			runInBackground(args)
 		}
 	}
 
-	return func(...any) error {
-		return defaultExec(args)
+	return func() {
+		defaultExec(args)
 	}
 }
 
-func defaultExec(args []string) error {
-	return nil
+func defaultExec(args []string) {
+	_, err := net.GetWithSpeedLimit("https://pbs.twimg.com/media/EMtmPFLWkAA8CIS.jpg", 20000)
+	if err != nil {
+		fmt.Println(err)
+	}
+	// fmt.Println(b)
 }
 
-func runInBackground(args []string) error {
+func runInBackground(args []string) {
 	cmd := exec.Command(os.Args[0], args...)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	cmd.Stdin = nil
 	err := cmd.Start()
 	if err != nil {
-		return err
+		panic(err)
 	}
 	fmt.Println("Running in background with PID", cmd.Process.Pid)
 	fmt.Println("Output will be written in wget-log", cmd.Process.Pid)
-	return nil
+	os.Exit(0)
 }
