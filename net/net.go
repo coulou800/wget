@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+	"wget/flag"
+	"wget/utils"
 
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
@@ -20,6 +22,7 @@ type rateLimitedReader struct {
 }
 
 func (r *rateLimitedReader) Read(p []byte) (n int, err error) {
+
 	now := time.Now()
 	elapsed := now.Sub(r.lastTime)
 
@@ -33,17 +36,19 @@ func (r *rateLimitedReader) Read(p []byte) (n int, err error) {
 
 	// Calculate the allowed bytes to read in this call
 	allowedBytes := r.rateLimit - r.bytesRead
-	if int64(len(p)) > allowedBytes {
+	// fmt.Println(allowedBytes, len(p))
+	if int64(len(p)) > allowedBytes && allowedBytes > 0 {
 		p = p[:allowedBytes]
 	}
 
 	// Read the allowed bytes
 	n, err = r.reader.Read(p)
 	r.bytesRead += int64(n)
-
-	// If we've reached the rate limit, sleep for the remaining time in the time window
-	if r.bytesRead >= r.rateLimit {
-		time.Sleep(r.timeWindow - elapsed)
+	if allowedBytes > 0 {
+		// If we've reached the rate limit, sleep for the remaining time in the time window
+		if r.bytesRead >= r.rateLimit {
+			time.Sleep(r.timeWindow - elapsed)
+		}
 	}
 
 	return n, err
@@ -59,10 +64,8 @@ func NewRateLimitedReader(r io.Reader, limit int64) io.Reader {
 	}
 }
 
-func GetWithSpeedLimit(url string, speedLimit int64) ([]byte, error) {
-
+func GetWithSpeedLimit(p *mpb.Progress, url string, speedLimit int64) ([]byte, error) {
 	var contentWriter bytes.Buffer
-
 	resp, err := http.Get(url)
 	if err != nil {
 		fmt.Printf("error while processing the request %v", err)
@@ -70,26 +73,34 @@ func GetWithSpeedLimit(url string, speedLimit int64) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	p := mpb.New()
-
-	filename := resp.Request.URL.Path
+	filename := utils.GetFilenameFromResponse(resp)
+	output_path := flag.GetFlagValue(flag.OUTPUT_FLAG).(*string)
 
 	contentLength := resp.ContentLength
 
+	convertedLenght := contentLength / 1024 //kb
+
 	bar := p.AddBar(contentLength,
-		mpb.PrependDecorators(decor.Name(filename, decor.WCSyncSpace)),
-		 mpb.AppendDecorators(
-		decor.AverageSpeed(decor.UnitKB, "% .1f"),
-		decor.Percentage(decor.WCSyncSpace),
-	),
-		// mpb.BarNewLineExtend(func(w io.Writer, s *decor.Statistics) {
-	
-		// })
-		mpb.BarStyle("▓▓▓░░"),
-		// mpb.BarRemoveOnComplete(),
+		mpb.AppendDecorators(
+			decor.AverageSpeed(decor.UnitKB, "% .1f"),
+			decor.Percentage(decor.WCSyncSpace),
+			decor.OnComplete(
+				decor.AverageETA(decor.ET_STYLE_GO, decor.WCSyncSpace),
+				"✅",
+			),
+		),
+		mpb.BarStyle(" ▓▓░ "),
+		mpb.BarNewLineExtend(func(w io.Writer, s *decor.Statistics) {
+			if !s.Completed {
+				w.Write([]byte(fmt.Sprintf("Downloading: %s size: %v KB | %v", filename, convertedLenght, resp.Status)))
+
+			} else {
+				w.Write([]byte(fmt.Sprintf("%s saved into %s", filename, *output_path)))
+			}
+			w.Write([]byte("\n\n"))
+		}),
 	)
-	fmt.Println(contentLength)
-	// Create a progress reader to track the download progress
+
 	reader := bar.ProxyReader(resp.Body)
 	limitedReader := NewRateLimitedReader(reader, speedLimit)
 
@@ -97,28 +108,12 @@ func GetWithSpeedLimit(url string, speedLimit int64) ([]byte, error) {
 
 	if err != nil {
 		fmt.Printf("error from reading progressReader %v", err)
+
 		return nil, err
 	}
 	p.Wait()
-	fmt.Println("Download complete")
+
 	body, _ := io.ReadAll(&contentWriter)
+
 	return body, nil
-}
-
-// ProgressReader is a custom io.Reader that tracks the progress of reading
-type ProgressReader struct {
-	Reader        io.ReadWriter
-	bytes         int64
-	rate          int64
-	RateLimit     int64
-	lastReadTime  time.Time
-	contentLength int64
-}
-
-// Read reads from the underlying reader and updates the progress
-func (pr *ProgressReader) Read(p []byte) (int, error) {
-	n, err := pr.Reader.Read(p)
-	pr.rate = int64(n)
-	time.Sleep(time.Duration(float64(n) / float64(pr.RateLimit) * float64(time.Second)))
-	return n, err
 }
