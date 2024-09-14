@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"strconv"
+	"path/filepath"
 	"strings"
+	"wget/utils"
 )
 
 type Flag = int
@@ -20,19 +21,27 @@ const (
 	CONTENT_FLAG
 	LIMITED_FLAG
 
+	MIRROR_FLAG
+	REJECT_FLAG
 	URLS_FLAG
+	EXCLUDE_FLAG
 )
 
 var (
-	Output     = new(string)
-	Path       = new(string)
-	RateLimit  = new(string)
-	Input      = new(string)
-	Background = new(bool)
-	Content    = new(string)
+	Output      = new(string)
+	Path        = new(string)
+	RateLimit   = new(string)
+	Input       = new(string)
+	Background  = new(bool)
+	Content     = new(string)
+	RejectedStr = new(string)
 
 	urls      = new([]string)
 	rateLimit int64
+	Mirror    = new(bool)
+	Reject    = new([]string)
+
+	Excludes = new([]string)
 
 	flagNames = make(map[Flag]string)
 )
@@ -66,37 +75,75 @@ func SetupFlagName() {
 	flagNames[CONTENT_FLAG] = "content"
 	flagNames[LIMITED_FLAG] = "limited"
 	flagNames[URLS_FLAG] = "url"
+	flagNames[MIRROR_FLAG] = "mirror"
+	flagNames[REJECT_FLAG] = "reject"
+	flagNames[EXCLUDE_FLAG] = "exclude"
 }
 
 func InitFlagValues() {
-	flagsValues[PATH_FLAG] = Path
 	flagsValues[RATELIMIT_FLAG] = RateLimit
 	flagsValues[INPUT_FLAG] = Input
 	flagsValues[BACKGROUND_FLAG] = Background
 	flagsValues[CONTENT_FLAG] = Content
+	flagsValues[REJECT_FLAG] = Reject
+	flagsValues[EXCLUDE_FLAG] = Excludes
 
 	limited := *RateLimit != ""
 
 	if limited {
-		n, err := strconv.Atoi(*RateLimit)
-		if err != nil {
-			fmt.Printf("invalid rate limit %v", *RateLimit)
-			os.Exit(1)
-		}
-		rateLimit = int64(n)
+		rateLimit = utils.ConvertedRateLimit(*RateLimit)
 	}
+	pwd, _ := os.Getwd()
 
-	if *Output == "" {
+	if *Path == "" {
 		path, err := os.Getwd()
 		if err != nil {
-			fmt.Println(err)
+			os.Stderr.WriteString(err.Error() + "\n")
 			os.Exit(1)
 		}
-		Output = &path
+		Path = &path
+	} else {
+		dir, err := os.Stat(*Path)
+		if err != nil {
+			dir, err = os.Stat(fmt.Sprintf("%v/%v", pwd, *Path))
+			if err != nil {
+				err := os.MkdirAll(*Path, 0777)
+				if err != nil {
+					os.Stderr.WriteString(err.Error() + "\n")
+					os.Exit(1)
+				}
+				dir, err = os.Stat(fmt.Sprintf("%v/%v", pwd, *Path))
+				if err != nil {
+					os.Stderr.WriteString(err.Error() + "\n")
+					os.Exit(1)
+				}
+			}
+
+		}
+		if !dir.IsDir() {
+			os.Stderr.WriteString("output dir is not a directory\n")
+			os.Exit(1)
+		}
+	}
+
+	if (*Path)[0] == '~' {
+		homeDir, err := os.UserHomeDir()
+		p := (*Path)[1:]
+
+		if err == nil {
+			absolutePath := filepath.Join(homeDir, p)
+			Path = &absolutePath
+		}
+	}
+
+	if (*Path)[0] != '/' {
+		absolutePath := filepath.Join(pwd, *Path)
+		Path = &absolutePath
 	}
 
 	flagsValues[LIMITED_FLAG] = limited
 	flagsValues[OUTPUT_FLAG] = Output
+	flagsValues[PATH_FLAG] = Path
 
 }
 
@@ -113,18 +160,26 @@ func SetupUrls(args []string) {
 
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
-			_, err := url.Parse(line)
-			if err != nil {
-				os.Stderr.Write([]byte(fmt.Sprintf("Invalid url: %s", line)))
+			if line == "" {
+				continue
+			}
+			parsedURL, err := url.Parse(line)
+			if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+				os.Stderr.Write([]byte(fmt.Sprintf("Invalid url: %s\n", line)))
+				continue
 			}
 			u = append(u, line)
 		}
 	} else {
 		u = append(u, args[0])
 	}
+
+	if len(u) == 0 {
+		os.Stderr.WriteString("please provide valid url")
+		os.Exit(1)
+	}
 	urls = &u
 
-	fmt.Println(urls)
 }
 
 // use this function to get the rate limit in numerical value
@@ -134,4 +189,23 @@ func GetRateLimit() int64 {
 
 func GetUrls() []string {
 	return *urls
+}
+
+func GetArgs() []string {
+	args := os.Args[1:]
+	var a []string
+	for _, arg := range args {
+		if arg != "-B" && arg != "--background" {
+			a = append(a, arg)
+		}
+	}
+	return a
+}
+
+func IsMirror() bool {
+	return *Mirror
+}
+
+func SetOutputPath(path string) {
+	flagsValues[PATH_FLAG] = &path
 }
