@@ -84,7 +84,10 @@ func Exec(cmd *cobra.Command, args []string) func() {
 
 	if flag.IsMirror() {
 		return func() {
-			MirrorExec(p, flag.GetUrls()[0])
+			// wg.Add(1)
+			MirrorExec(p, &wg, flag.GetUrls()[0])
+			p.Wait()
+			// wg.Wait()
 		}
 	}
 
@@ -94,18 +97,18 @@ func Exec(cmd *cobra.Command, args []string) func() {
 			wg.Add(1)
 			go func(url string) {
 				defer wg.Done()
-				err := defaultExec(p, url)
-				if err != nil {
-					fmt.Printf("error: %v\n", err)
-				}
+				defaultExec(p, url)
+				// if err != nil {
+				// 	fmt.Printf("error: %v\n", err)
+				// }
 			}(url)
 		}
 		p.Wait()
 	}
 }
 
-func defaultExec(p *mpb.Progress, url string) error {
-	return net.GetWithSpeedLimit(p, url, flag.GetRateLimit())
+func defaultExec(p *mpb.Progress, url string) {
+	net.GetWithSpeedLimit(p, url, flag.GetRateLimit())
 }
 
 func runInBackground() {
@@ -122,7 +125,7 @@ func runInBackground() {
 	os.Exit(0)
 }
 
-func MirrorExec(p *mpb.Progress, u string) {
+func MirrorExec(p *mpb.Progress, wg *sync.WaitGroup, u string) {
 	parsedUrl, err := url.Parse(u)
 	if err != nil {
 		os.Stderr.WriteString("invalid url\n")
@@ -138,24 +141,23 @@ func MirrorExec(p *mpb.Progress, u string) {
 	}
 	flag.SetOutputPath(path)
 
-	var wg sync.WaitGroup
-	go processMirroring()
-	go processLinks(p, &wg)
-	// wg.Add(1)
-	mirrorRecursive(p, u, &wg, state.GetLimiter())
-	// wg.Done()
-
+	go ExtractURLs()
+	go processLinks(p, wg)
+	go processMirroring(wg)
+	wg.Add(1) // Add to wait group for the recursive function
+	go func() {
+		// defer wg.Done() // Signal completion when done
+		mirrorRecursive(p, u, state.GetLimiter())
+	}()
+	// Wait for all goroutines to finish
 	wg.Wait()
+
+	// Close channels after all processing is done
+	// close(state.GetStates().Mirror.Links)
+	// close(state.GetStates().Mirror.FileToProcess)
 }
 
-func mirrorRecursive(p *mpb.Progress, u string, wg *sync.WaitGroup, limiter *rate.Limiter) {
-	if _, loaded := state.GetVisitedLinks().LoadOrStore(u, true); loaded {
-		return
-	}
-
-	if ignored(u) {
-		return
-	}
+func mirrorRecursive(p *mpb.Progress, u string, limiter *rate.Limiter) {
 
 	state.SetVisitedLink(u)
 
@@ -187,100 +189,85 @@ func mirrorRecursive(p *mpb.Progress, u string, wg *sync.WaitGroup, limiter *rat
 		return
 	}
 
-	err = defaultExec(p, u)
-	if err != nil {
-		fmt.Printf("error: %v\n", err)
-		return
-	}
+	defaultExec(p, u)
+	// if err != nil {
+	// 	fmt.Printf("error: %v\n", err)
+	// 	return
+	// }
+
+	// defer wg.Done() // Ensure to signal completion
 }
 
-func resolveLink(baseUrl *url.URL, link string) string {
-	resolvedUrl, err := baseUrl.Parse(link)
-	if err != nil {
-		return ""
-	}
-	return resolvedUrl.String()
-}
+func processMirroring(wg *sync.WaitGroup) {
+	for fileToProcess := range state.GetStates().Mirror.FileToProcess {
+		f, err := os.Open(fileToProcess.Path)
+		if err != nil {
+			fmt.Printf("error opening file: %v", err)
+			wg.Done()
+			continue
+		}
 
-func isSameDomain(baseUrl *url.URL, link string) bool {
-	linkUrl, err := url.Parse(link)
-	if err != nil {
-		return false
-	}
-	return baseUrl.Hostname() == linkUrl.Hostname()
-}
+		fileExt := filepath.Ext(fileToProcess.Path)
+		baseUrl := fileToProcess.Url
+		doc, err := html.Parse(f)
+		if err != nil || fileExt != ".html" {
+			fmt.Printf("error parsing HTML: %v", err)
+			wg.Done()
+			continue
+		}
 
-func processMirroring() {
-
-	for {
-		for fileToProcess := range state.GetStates().Mirror.FileToProcess {
-			f, err := os.Open(fileToProcess.Path)
-			if err != nil {
-				fmt.Printf("error opening file: %v", err)
-				continue
-			}
-
-			links := getLinks(f)
-			links = append(links, utils.ExtractURLs(f)...)
-
-			for _, l := range links {
-				state.AddLink(l)
-			}
-
-			baseUrl := fileToProcess.Url
-			doc, err := html.Parse(f)
-			if err != nil {
-				fmt.Printf("error parsing HTML: %v", err)
-				continue
-			}
-
-			var traverse func(*html.Node)
-			traverse = func(n *html.Node) {
-				if n.Type == html.ElementNode {
-					for i, attr := range n.Attr {
-						if isLinkAttribute(attr.Key) {
-							resolvedUrl, err := baseUrl.Parse(attr.Val)
-							if err == nil && isSameDomain(baseUrl, resolvedUrl.String()) {
-								relativePath := resolvedUrl.Path
-								if relativePath == "" || strings.HasSuffix(relativePath, "/") {
-									filepath.Join(relativePath, "index.html")
-								}
-								n.Attr[i].Val = strings.TrimLeft(relativePath, "/")
+		var traverse func(*html.Node)
+		traverse = func(n *html.Node) {
+			if n.Type == html.ElementNode {
+				for i, attr := range n.Attr {
+					if isLinkAttribute(attr.Key) {
+						resolvedUrl, err := baseUrl.Parse(attr.Val)
+						if err == nil && utils.IsSameDomain(baseUrl, resolvedUrl.String()) {
+							relativePath := resolvedUrl.Path
+							if relativePath == "" || strings.HasSuffix(relativePath, "/") {
+								relativePath = filepath.Join(relativePath, "index.html")
 							}
+							n.Attr[i].Val = strings.TrimLeft(relativePath, "/")
 						}
 					}
 				}
-				for c := n.FirstChild; c != nil; c = c.NextSibling {
-					traverse(c)
-				}
 			}
-			outputPath := filepath.Join(*flag.GetFlagValue(flag.PATH_FLAG).(*string), baseUrl.Path)
-			traverse(doc)
-
-			if strings.HasSuffix(baseUrl.Path, "/") {
-				outputPath = filepath.Join(outputPath, "index.html")
+			for c := n.FirstChild; c != nil; c = c.NextSibling {
+				traverse(c)
 			}
-
-			err = os.MkdirAll(filepath.Dir(outputPath), 0755)
-			if err != nil {
-				fmt.Printf("error creating directories for %s: %v", outputPath, err)
-				continue
-			}
-
-			file, err := os.OpenFile(outputPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
-			if err != nil {
-				fmt.Printf("error opening file %s: %v", outputPath, err)
-				continue
-			}
-
-			// Write the modified HTML
-			err = html.Render(file, doc)
-			if err != nil {
-				fmt.Printf("error writing HTML to file %s: %v", outputPath, err)
-				continue
-			}
-
 		}
+		outputPath := fileToProcess.Path
+		traverse(doc)
+
+		err = os.MkdirAll(filepath.Dir(outputPath), 0755)
+		if err != nil {
+			fmt.Printf("error creating directories for %s: %v", outputPath, err)
+			wg.Done()
+
+			continue
+		}
+
+		file, err := os.OpenFile(outputPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+		if err != nil {
+			fmt.Printf("error opening file %s: %v", outputPath, err)
+			wg.Done()
+
+			continue
+		}
+
+		// Write the modified HTML
+		err = html.Render(file, doc)
+		if err != nil {
+			fmt.Printf("error writing HTML to file %s: %v", outputPath, err)
+			wg.Done()
+
+			continue
+		}
+		file.Close()
+
+		utils.ReplaceURLsInFile(fileToProcess.Path)
+
+		wg.Done()
 	}
 }
 
@@ -351,14 +338,32 @@ func ignored(u string) bool {
 func processLinks(p *mpb.Progress, wg *sync.WaitGroup) {
 	baseUrl := state.GetBaseUrl()
 	for link := range state.GetStates().Mirror.Links {
-		absoluteLink := resolveLink(baseUrl, link)
+		absoluteLink := utils.ResolveLink(baseUrl, link)
+		_, loaded := state.GetVisitedLinks().Load(link)
 
-		if absoluteLink != "" && isSameDomain(baseUrl, absoluteLink) {
+		ignored := loaded && ignored(link)
+
+		if !ignored && absoluteLink != "" && utils.IsSameDomain(baseUrl, absoluteLink) {
 			wg.Add(1)
 			go func(link string) {
-				defer wg.Done()
-				mirrorRecursive(p, link, wg, state.GetLimiter())
+				// defer wg.Done() // Ensure to signal completion
+				mirrorRecursive(p, link, state.GetLimiter())
 			}(absoluteLink)
 		}
+	}
+}
+
+func ExtractURLs() {
+	for e := range state.GetStates().Mirror.ReadyToExtract {
+		f, _ := os.Open(e.Path)
+		content, _ := io.ReadAll(f)
+		links := getLinks(f)
+		links = append(links, utils.ExtractURLs(state.GetBaseUrl(), content)...)
+
+		for _, l := range links {
+			state.AddLink(l)
+		}
+
+		state.AddFileToProcess(e)
 	}
 }

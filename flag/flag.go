@@ -114,6 +114,7 @@ func InitFlagValues() {
 				}
 				dir, err = os.Stat(fmt.Sprintf("%v/%v", pwd, *Path))
 				if err != nil {
+					println("here")
 					os.Stderr.WriteString(err.Error() + "\n")
 					os.Exit(1)
 				}
@@ -139,6 +140,12 @@ func InitFlagValues() {
 	if (*Path)[0] != '/' {
 		absolutePath := filepath.Join(pwd, *Path)
 		Path = &absolutePath
+	}
+
+	err := os.MkdirAll(*Path, 0777)
+	if err != nil {
+		os.Stderr.WriteString(err.Error() + "\n")
+		os.Exit(1)
 	}
 
 	flagsValues[LIMITED_FLAG] = limited

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 	"wget/flag"
 	"wget/state"
@@ -50,9 +51,25 @@ func (r *rateLimitedReader) Read(p []byte) (n int, err error) {
 		r.completed = true
 	}
 	r.bytesRead += int64(n)
-	if allowedBytes > 0 {
-		if r.bytesRead >= r.rateLimit {
-			time.Sleep(r.timeWindow - elapsed)
+
+	// Adjust sleep time to ensure the rate limit is not exceeded
+	if r.bytesRead >= r.rateLimit {
+		// Calculate the time to sleep based on the rate limit
+		sleepDuration := r.timeWindow - elapsed
+		if sleepDuration > 0 {
+			time.Sleep(sleepDuration)
+		}
+		// Reset bytes read after sleeping
+		r.bytesRead = 0
+		r.lastTime = time.Now() // Update lastTime after sleeping
+	}
+
+	// Ensure we do not exceed the rate limit
+	if r.bytesRead > r.rateLimit {
+		excessBytes := r.bytesRead - r.rateLimit
+		excessTime := time.Duration(float64(excessBytes) / float64(r.rateLimit) * float64(r.timeWindow))
+		if excessTime > 0 {
+			time.Sleep(excessTime)
 		}
 	}
 
@@ -70,7 +87,7 @@ func NewRateLimitedReader(r io.Reader, limit int64) io.Reader {
 	}
 }
 
-func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) error {
+func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 	client := &http.Client{}
 	contentLength := utils.GetContentLength(u)
 	userAgent := "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
@@ -78,14 +95,16 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) error {
 	req.Header.Add("User-Agent", userAgent)
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		// return err
+		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		errMsg := fmt.Errorf("couldn't get %s. reason: %v", u, resp.Status)
 		fmt.Printf("%v\n\n", errMsg)
-		return errMsg
+		// return errMsg
+		return
 	}
 
 	var filename string
@@ -107,7 +126,7 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) error {
 
 		if filePath == *output_path {
 			filename = "index.html"
-			filePath = filepath.Join(*output_path, "index.html")
+			filePath = filepath.Join(*output_path, filename)
 
 		} else {
 			filePath = filepath.Join(*output_path, parsedURL.Path)
@@ -120,7 +139,8 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) error {
 
 	out_file, err := os.Create(path)
 	if err != nil {
-		return err
+		// return err
+		return
 	}
 	convertedLenght := utils.ConvertedLenghtStr(contentLength)
 
@@ -151,11 +171,11 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) error {
 				w.Write([]byte(fmt.Sprintf("Downloading: %s | %v / %v | %v", filename, utils.ConvertedLenghtStr(s.Current), convertedLenght, resp.Status)))
 			} else {
 				w.Write([]byte(fmt.Sprintf("%s saved into %s", filename, *output_path)))
+
 			}
 			w.Write([]byte("\n\n"))
 		}),
 	)
-
 	reader := bar.ProxyReader(resp.Body)
 	limitedReader := NewRateLimitedReader(reader, speedLimit)
 
@@ -163,14 +183,30 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) error {
 
 	if err != nil {
 		fmt.Println("here", err)
-		return err
+		// return err
+		return
 	}
+
 	if flag.IsMirror() {
-		f := state.FileToProcess{
-			Path: filepath.Join(*output_path, filename),
-			Url:  parsedURL,
-		}
-		state.AddFileToProcess(f)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func(bar *mpb.Bar) {
+			defer wg.Done()
+			for {
+				if bar.Completed() {
+					f := state.FileToProcess{
+						Path: filepath.Join(*output_path, filename),
+						Url:  parsedURL,
+					}
+					state.AddToReadyExtract(f)
+					break
+				}
+
+			}
+
+		}(bar)
+		wg.Wait()
 	}
-	return nil
+
+	// return nil
 }

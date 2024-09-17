@@ -1,11 +1,12 @@
 package utils
 
 import (
+	"bufio"
 	"fmt"
-	"io"
 	"math"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -145,11 +146,7 @@ func ConvertedRateLimit(valStr string) int64 {
 	return -1
 }
 
-func ExtractURLs(f *os.File) []string {
-	content, err := io.ReadAll(f)
-	if err != nil {
-		fmt.Println("cannot read", err)
-	}
+func ExtractURLs(baseUrl *url.URL, content []byte) []string {
 	re := regexp.MustCompile(`url\(['"]?(.*?)['"]?\)`)
 
 	matches := re.FindAllStringSubmatch(string(content), -1)
@@ -158,9 +155,95 @@ func ExtractURLs(f *os.File) []string {
 
 	for _, match := range matches {
 		if len(match) > 1 {
+			// p := ResolveRelativePath(baseUrl, match[1])
+			// println(p)
 			urls = append(urls, match[1])
 		}
 	}
 
 	return urls
+}
+
+// func ResolveRelativePath(baseUrl *url.URL, path string) string {
+// 	var url *url.URL
+// 	// if IsSameDomain(baseUrl, path) {
+// 	url, _ = url.Parse(ResolveLink(baseUrl, path))
+// 	// } else {
+// 	// 	url, _ = url.Parse(path)
+// 	// }
+
+// 	return url.Path
+// }
+
+func IsSameDomain(baseUrl *url.URL, link string) bool {
+	linkUrl, err := url.Parse(link)
+	if err != nil {
+		return false
+	}
+	return baseUrl.Hostname() == linkUrl.Hostname()
+}
+
+func ResolveLink(baseUrl *url.URL, link string) string {
+	resolvedUrl, err := baseUrl.Parse(link)
+	if err != nil {
+		return ""
+	}
+	return resolvedUrl.String()
+}
+
+func ReplaceURLsInFile(filename string) error {
+	// Open the file for reading
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Read file contents line by line
+	var fileContent strings.Builder
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fileContent.WriteString(scanner.Text())
+		fileContent.WriteString("\n") // Add newline to preserve formatting
+	}
+
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	// Define a regular expression to match URLs inside "url('')"
+	re := regexp.MustCompile(`url\(['"]?(.*?)['"]?\)`)
+
+	// Function to replace URLs with relative paths
+	replacer := func(match string) string {
+		// Extract the URL from the match
+		parts := re.FindStringSubmatch(match)
+		if len(parts) > 1 {
+			// Replace with relative path by concatenating with basePath
+			relativePath := parts[1]
+			if strings.HasPrefix(relativePath, "/") {
+				relativePath = "." + relativePath
+			}
+			return fmt.Sprintf("url('%s')", relativePath)
+		}
+		return match
+	}
+
+	// Replace all matches using the replacer function
+	modifiedContent := re.ReplaceAllStringFunc(fileContent.String(), replacer)
+
+	// Open the same file for writing and truncate it (clear the content)
+	file, err = os.OpenFile(filename, os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Write the modified content back to the file
+	_, err = file.WriteString(modifiedContent)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

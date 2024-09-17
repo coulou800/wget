@@ -9,11 +9,12 @@ import (
 )
 
 type MirrorState struct {
-	BaseUrl       *url.URL
-	Links         chan string
-	FileToProcess chan FileToProcess
-	VisitedLinks  *sync.Map
-	limiter       *rate.Limiter
+	BaseUrl        *url.URL
+	Links          chan string
+	FileToProcess  chan FileToProcess
+	VisitedLinks   *sync.Map
+	limiter        *rate.Limiter
+	ReadyToExtract chan FileToProcess
 }
 
 type FileToProcess struct {
@@ -36,10 +37,11 @@ func InitNewState() {
 
 	states = States{
 		Mirror: MirrorState{
-			VisitedLinks:  &sync.Map{},
-			Links:         make(chan string),
-			FileToProcess: make(chan FileToProcess),
-			limiter:       limiter,
+			VisitedLinks:   &sync.Map{},
+			Links:          make(chan string),
+			FileToProcess:  make(chan FileToProcess),
+			limiter:        limiter,
+			ReadyToExtract: make(chan FileToProcess),
 		},
 	}
 }
@@ -70,4 +72,12 @@ func GetLimiter() *rate.Limiter {
 
 func SetVisitedLink(link string) {
 	states.Mirror.VisitedLinks.Store(link, true)
+}
+
+func GetReadyExtract() chan FileToProcess {
+	return states.Mirror.ReadyToExtract
+}
+
+func AddToReadyExtract(f FileToProcess) {
+	states.Mirror.ReadyToExtract <- f
 }
