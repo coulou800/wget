@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 	"wget/flag"
 	"wget/state"
@@ -51,25 +50,9 @@ func (r *rateLimitedReader) Read(p []byte) (n int, err error) {
 		r.completed = true
 	}
 	r.bytesRead += int64(n)
-
-	// Adjust sleep time to ensure the rate limit is not exceeded
-	if r.bytesRead >= r.rateLimit {
-		// Calculate the time to sleep based on the rate limit
-		sleepDuration := r.timeWindow - elapsed
-		if sleepDuration > 0 {
-			time.Sleep(sleepDuration)
-		}
-		// Reset bytes read after sleeping
-		r.bytesRead = 0
-		r.lastTime = time.Now() // Update lastTime after sleeping
-	}
-
-	// Ensure we do not exceed the rate limit
-	if r.bytesRead > r.rateLimit {
-		excessBytes := r.bytesRead - r.rateLimit
-		excessTime := time.Duration(float64(excessBytes) / float64(r.rateLimit) * float64(r.timeWindow))
-		if excessTime > 0 {
-			time.Sleep(excessTime)
+	if allowedBytes > 0 {
+		if r.bytesRead >= r.rateLimit {
+			time.Sleep(r.timeWindow - elapsed)
 		}
 	}
 
@@ -99,6 +82,8 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 		return
 	}
 	defer resp.Body.Close()
+
+	var added bool
 
 	if resp.StatusCode != 200 {
 		errMsg := fmt.Errorf("couldn't get %s. reason: %v", u, resp.Status)
@@ -171,7 +156,26 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 				w.Write([]byte(fmt.Sprintf("Downloading: %s | %v / %v | %v", filename, utils.ConvertedLenghtStr(s.Current), convertedLenght, resp.Status)))
 			} else {
 				w.Write([]byte(fmt.Sprintf("%s saved into %s", filename, *output_path)))
+				if flag.IsMirror() {
+					// var wg sync.WaitGroup
+					// wg.Add(1)
+					// go func(bar *mpb.Bar) {
+					// defer wg.Done()
+					// for {
+					if s.Completed && !added {
+						added = true
+						f := state.FileToProcess{
+							Path: filepath.Join(*output_path, filename),
+							Url:  parsedURL,
+						}
+							state.AddToReadyExtract(f)
+					}
 
+					// }
+
+					// }(bar)
+					// wg.Wait()
+				}
 			}
 			w.Write([]byte("\n\n"))
 		}),
@@ -187,26 +191,26 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 		return
 	}
 
-	if flag.IsMirror() {
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func(bar *mpb.Bar) {
-			defer wg.Done()
-			for {
-				if bar.Completed() {
-					f := state.FileToProcess{
-						Path: filepath.Join(*output_path, filename),
-						Url:  parsedURL,
-					}
-					state.AddToReadyExtract(f)
-					break
-				}
+	// if flag.IsMirror() {
+	// 	// var wg sync.WaitGroup
+	// 	// wg.Add(1)
+	// 	go func(bar *mpb.Bar) {
+	// 		// defer wg.Done()
+	// 		for {
+	// 			if bar.Completed() {
+	// 				f := state.FileToProcess{
+	// 					Path: filepath.Join(*output_path, filename),
+	// 					Url:  parsedURL,
+	// 				}
+	// 				state.AddToReadyExtract(f)
+	// 				break
+	// 			}
 
-			}
+	// 		}
 
-		}(bar)
-		wg.Wait()
-	}
+	// 	}(bar)
+	// 	// wg.Wait()
+	// }
 
 	// return nil
 }

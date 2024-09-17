@@ -3,6 +3,7 @@ package utils
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"math"
 	"mime"
 	"net/http"
@@ -146,8 +147,9 @@ func ConvertedRateLimit(valStr string) int64 {
 	return -1
 }
 
-func ExtractURLs(baseUrl *url.URL, content []byte) []string {
+func ExtractURLs(baseUrl *url.URL, f io.Reader) []string {
 	re := regexp.MustCompile(`url\(['"]?(.*?)['"]?\)`)
+	content, _ := io.ReadAll(f)
 
 	matches := re.FindAllStringSubmatch(string(content), -1)
 
