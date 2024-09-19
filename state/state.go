@@ -1,7 +1,6 @@
 package state
 
 import (
-	"fmt"
 	"net/url"
 	"os"
 	"sync"
@@ -61,7 +60,6 @@ func MapUrlPath(f FileToProcess) {
 // }
 
 func IsBackground() bool {
-	fmt.Println(os.Getenv("WGET_BACKGROUND"))
 	return os.Getenv("WGET_BACKGROUND") == "1"
 }
 

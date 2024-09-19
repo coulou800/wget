@@ -93,6 +93,12 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 		return
 	}
 
+	if state.IsBackground() {
+		fmt.Printf("Getting %s\n", u)
+		fmt.Printf("sending request, awaiting response... status %s\n", resp.Status)
+		fmt.Printf("content size: %s\n\n", utils.ConvertedLenghtStr(contentLength))
+	}
+
 	var filename string
 	if flag.Provided(flag.OUTPUT_FLAG) {
 		filename = *flag.GetFlagValue(flag.OUTPUT_FLAG).(*string)
@@ -156,7 +162,7 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 		limitedReader := NewRateLimitedReader(resp.Body, speedLimit)
 		_, err = io.Copy(out_file, limitedReader)
 		if err != nil {
-			fmt.Println("here", err)
+			fmt.Println(err)
 			return
 		}
 
@@ -204,7 +210,7 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 
 		_, err = io.Copy(out_file, limitedReader)
 		if err != nil {
-			fmt.Println("here", err)
+			fmt.Println(err)
 			return
 		}
 

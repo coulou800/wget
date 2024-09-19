@@ -28,7 +28,7 @@ func newLogger() *Logger {
 
 	filename := filepath.Join(pwd, LOGFILENAME)
 
-	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0644)
+	file, err := os.OpenFile(filename, os.O_TRUNC|os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		fmt.Println("can't open the log file")
 		os.Exit(1)
@@ -44,8 +44,4 @@ var logger *Logger
 func init() {
 	logger = newLogger()
 	OUT = logger.file
-}
-
-func Log(s string) {
-	fmt.Println(s)
 }

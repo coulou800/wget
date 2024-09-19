@@ -52,16 +52,7 @@ var rootCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		fn := Exec(cmd, args)
-		startMsg := fmt.Sprintf("#Start time: %s\n", utils.GetCurrentTime())
-		logger.Log(startMsg)
-		if !flag.IsMirror() {
-			fmt.Printf("#Files: %v\n", len(flag.GetUrls()))
-		}
-		fmt.Printf("\n\n")
 		fn()
-		fmt.Printf("\n\n")
-		endMsg := fmt.Sprintf("#End time: %s\n", utils.GetCurrentTime())
-		logger.Log(endMsg)
 	},
 }
 
@@ -79,19 +70,28 @@ func Exec(cmd *cobra.Command, args []string) func() {
 	flag.SetupUrls(args)
 	if flag.Provided(flag.BACKGROUND_FLAG) {
 		return func() {
+
 			runInBackground()
 		}
 	}
 
 	if flag.IsMirror() {
 		return func() {
+			startMsg := fmt.Sprintf("#Start time: %s\n", utils.GetCurrentTime())
+			fmt.Println(startMsg)
 			// wg.Add(1)
 			MirrorExec(p, &wg, flag.GetUrls()[0])
 			p.Wait()
+
+			endMsg := fmt.Sprintf("#End time: %s\n", utils.GetCurrentTime())
+			fmt.Println(endMsg)
 		}
 	}
 
 	return func() {
+		startMsg := fmt.Sprintf("#Start time: %s\n", utils.GetCurrentTime())
+		fmt.Println(startMsg)
+		fmt.Printf("#Files: %v\n", len(flag.GetUrls()))
 
 		for _, url := range flag.GetUrls() {
 			wg.Add(1)
@@ -104,6 +104,9 @@ func Exec(cmd *cobra.Command, args []string) func() {
 			}(url)
 		}
 		p.Wait()
+
+		endMsg := fmt.Sprintf("#End time: %s\n", utils.GetCurrentTime())
+		fmt.Println(endMsg)
 	}
 }
 
