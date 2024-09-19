@@ -151,7 +151,6 @@ func InitFlagValues() {
 	flagsValues[LIMITED_FLAG] = limited
 	flagsValues[OUTPUT_FLAG] = Output
 	flagsValues[PATH_FLAG] = Path
-
 }
 
 func SetupUrls(args []string) {

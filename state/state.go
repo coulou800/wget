@@ -1,7 +1,9 @@
 package state
 
 import (
+	"fmt"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -15,6 +17,7 @@ type MirrorState struct {
 	VisitedLinks   *sync.Map
 	limiter        *rate.Limiter
 	ReadyToExtract chan FileToProcess
+	URLMap         *sync.Map
 }
 
 type FileToProcess struct {
@@ -23,7 +26,8 @@ type FileToProcess struct {
 }
 
 type States struct {
-	Mirror MirrorState
+	Mirror     MirrorState
+	Background bool
 }
 
 var states States
@@ -42,8 +46,23 @@ func InitNewState() {
 			FileToProcess:  make(chan FileToProcess),
 			limiter:        limiter,
 			ReadyToExtract: make(chan FileToProcess),
+			URLMap:         &sync.Map{},
 		},
+		Background: false,
 	}
+}
+
+func MapUrlPath(f FileToProcess) {
+	states.Mirror.URLMap.Store(f.Url, f.Path)
+}
+
+// func GetPath() string {
+// 	return
+// }
+
+func IsBackground() bool {
+	fmt.Println(os.Getenv("WGET_BACKGROUND"))
+	return os.Getenv("WGET_BACKGROUND") == "1"
 }
 
 func AddFileToProcess(f FileToProcess) {

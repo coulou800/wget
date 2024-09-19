@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"wget/flag"
+	"wget/logger"
 	"wget/net"
 	"wget/state"
 	"wget/utils"
@@ -50,15 +52,16 @@ var rootCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		fn := Exec(cmd, args)
-		fmt.Printf("#Start time: %s\n", utils.GetCurrentTime())
+		startMsg := fmt.Sprintf("#Start time: %s\n", utils.GetCurrentTime())
+		logger.Log(startMsg)
 		if !flag.IsMirror() {
 			fmt.Printf("#Files: %v\n", len(flag.GetUrls()))
 		}
 		fmt.Printf("\n\n")
 		fn()
-		fmt.Printf("#End time: %s\n", utils.GetCurrentTime())
 		fmt.Printf("\n\n")
-
+		endMsg := fmt.Sprintf("#End time: %s\n", utils.GetCurrentTime())
+		logger.Log(endMsg)
 	},
 }
 
@@ -85,8 +88,6 @@ func Exec(cmd *cobra.Command, args []string) func() {
 			// wg.Add(1)
 			MirrorExec(p, &wg, flag.GetUrls()[0])
 			p.Wait()
-			// wg.Wait()
-			// println()
 		}
 	}
 
@@ -112,15 +113,20 @@ func defaultExec(p *mpb.Progress, url string) {
 
 func runInBackground() {
 	cmd := exec.Command(os.Args[0], flag.GetArgs()...)
-	cmd.Stdout = nil
+	cmd.Stdout = logger.OUT
 	cmd.Stderr = nil
 	cmd.Stdin = nil
+	env := append(os.Environ(), "WGET_BACKGROUND=1")
+
+	cmd.Env = env
 	err := cmd.Start()
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Running in background with PID", cmd.Process.Pid)
-	fmt.Println("Output will be written in wget-log", cmd.Process.Pid)
+
+	pid := cmd.Process.Pid
+	fmt.Println("Running in background with PID", pid)
+	fmt.Printf("Output will be written in  %s/wget-log\n", *flag.Path)
 	os.Exit(0)
 }
 
@@ -140,7 +146,7 @@ func MirrorExec(p *mpb.Progress, wg *sync.WaitGroup, u string) {
 	}
 	flag.SetOutputPath(path)
 
-	go ExtractURLs()
+	go ExtractURLs(wg)
 	go processLinks(p, wg)
 	go processMirroring(wg)
 	wg.Add(1) // Add to wait group for the recursive function
@@ -189,12 +195,6 @@ func mirrorRecursive(p *mpb.Progress, u string) {
 	}
 
 	defaultExec(p, u)
-	// if err != nil {
-	// 	fmt.Printf("error: %v\n", err)
-	// 	return
-	// }
-
-	// defer wg.Done() // Ensure to signal completion
 }
 
 func processMirroring(wg *sync.WaitGroup) {
@@ -226,7 +226,11 @@ func processMirroring(wg *sync.WaitGroup) {
 							if relativePath == "" || strings.HasSuffix(relativePath, "/") {
 								relativePath = filepath.Join(relativePath, "index.html")
 							}
-							n.Attr[i].Val = strings.TrimLeft(relativePath, "/")
+							fname := strings.TrimLeft(relativePath, "/")
+							if filepath.Ext(fname) == "" {
+								fname += ".html"
+							}
+							n.Attr[i].Val = fname
 						}
 					}
 				}
@@ -271,9 +275,10 @@ func processMirroring(wg *sync.WaitGroup) {
 }
 
 func getLinks(r io.Reader) []string {
-	doc, err := html.Parse(r)
+	content, _ := io.ReadAll(r)
+	doc, err := html.Parse(bytes.NewReader(content))
 	if err != nil {
-		fmt.Printf("Error parsing HTML: %v\n", err)
+		// fmt.Printf("Error parsing HTML: %v\n", err)
 		return nil
 	}
 
@@ -293,6 +298,8 @@ func getLinks(r io.Reader) []string {
 	}
 
 	traverse(doc)
+
+	links = append(links, utils.ExtractURLs(state.GetBaseUrl(), content)...)
 	return links
 }
 
@@ -349,14 +356,14 @@ func processLinks(p *mpb.Progress, wg *sync.WaitGroup) {
 	}
 }
 
-func ExtractURLs() {
+func ExtractURLs(wg *sync.WaitGroup) {
 	for e := range state.GetStates().Mirror.ReadyToExtract {
 		f, _ := os.Open(e.Path)
 		// content, _ := io.ReadAll(f)
 		links := getLinks(f)
-		links = append(links, utils.ExtractURLs(state.GetBaseUrl(), f)...)
 
 		for _, l := range links {
+			l = utils.ResolveLink(state.GetBaseUrl(), l)
 			_, loaded := state.GetVisitedLinks().Load(l)
 			if !loaded {
 				state.AddLink(l)
@@ -365,6 +372,7 @@ func ExtractURLs() {
 		}
 
 		if _, err := html.Parse(f); err != nil {
+			wg.Done()
 			continue
 		}
 

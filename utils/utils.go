@@ -3,7 +3,6 @@ package utils
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"math"
 	"mime"
 	"net/http"
@@ -58,31 +57,6 @@ func GetCurrentTime() string {
 	formattedTime := now.Format("2006-01-02 15:04:05")
 
 	return formattedTime
-}
-
-func GetContentLength(url string) int64 {
-	client := &http.Client{}
-	userAgent := "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
-	req, _ := http.NewRequest("HEAD", url, nil)
-	req.Header.Add("User-Agent", userAgent)
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0
-	}
-	defer resp.Body.Close()
-
-	contentLength := resp.ContentLength
-
-	cookies := resp.Cookies()
-	for _, v := range cookies {
-		fmt.Println(v)
-	}
-
-	if contentLength == -1 {
-		return 0
-	}
-
-	return contentLength
 }
 
 func GetTerminalWidth() int {
@@ -147,9 +121,9 @@ func ConvertedRateLimit(valStr string) int64 {
 	return -1
 }
 
-func ExtractURLs(baseUrl *url.URL, f io.Reader) []string {
+func ExtractURLs(baseUrl *url.URL, content []byte) []string {
 	re := regexp.MustCompile(`url\(['"]?(.*?)['"]?\)`)
-	content, _ := io.ReadAll(f)
+	// content, _ := io.ReadAll(f)
 
 	matches := re.FindAllStringSubmatch(string(content), -1)
 

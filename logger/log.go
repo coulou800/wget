@@ -8,10 +8,12 @@ import (
 )
 
 type Logger struct {
-	file io.Writer
+	file *os.File
 }
 
 const LOGFILENAME = "wget-log"
+
+var OUT *os.File
 
 func (l *Logger) Write(p []byte) (n int, err error) {
 	return io.WriteString(l.file, fmt.Sprintln(string(p)))
@@ -41,13 +43,9 @@ var logger *Logger
 
 func init() {
 	logger = newLogger()
+	OUT = logger.file
 }
 
 func Log(s string) {
-	if os.Stdout == nil {
-		logger.Write([]byte(s))
-
-	} else {
-		fmt.Println(s)
-	}
+	fmt.Println(s)
 }
