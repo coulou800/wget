@@ -96,7 +96,7 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 	if state.IsBackground() {
 		fmt.Printf("Getting %s\n", u)
 		fmt.Printf("sending request, awaiting response... status %s\n", resp.Status)
-		fmt.Printf("content size: %s\n\n", utils.ConvertedLenghtStr(contentLength))
+		fmt.Printf("content size: %s\n", utils.ConvertedLenghtStr(contentLength))
 	}
 
 	var filename string
@@ -144,21 +144,15 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 			state.AddToReadyExtract(f)
 			added = true
 		}
+
+		if state.IsBackground() {
+			fmt.Printf("saving file to: %s\n", path)
+			fmt.Printf("Downloaded %s\n\n", u)
+		}
 	}
 
 	// Check if running in background
 	if state.IsBackground() {
-		// // Redirect os.Stdout to a specific file
-		// logFile, err := os.OpenFile("background_output.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		// if err != nil {
-		// 	fmt.Println("Failed to open log file:", err)
-		// 	return
-		// }
-		// defer logFile.Close()
-		// os.Stdout = logFile
-		// os.Stderr = logFile
-
-		// No progress bar in the background, but still process the file
 		limitedReader := NewRateLimitedReader(resp.Body, speedLimit)
 		_, err = io.Copy(out_file, limitedReader)
 		if err != nil {
@@ -166,7 +160,6 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 			return
 		}
 
-		// Call file processing in the background as well
 		processFile()
 
 	} else {
@@ -214,7 +207,6 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 			return
 		}
 
-		// Call file processing in the foreground after the download completes
 		processFile()
 	}
 }

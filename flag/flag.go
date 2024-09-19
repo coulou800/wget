@@ -20,7 +20,7 @@ const (
 	BACKGROUND_FLAG
 	CONTENT_FLAG
 	LIMITED_FLAG
-
+	CONVERT_FLAG
 	MIRROR_FLAG
 	REJECT_FLAG
 	URLS_FLAG
@@ -35,15 +35,13 @@ var (
 	Background  = new(bool)
 	Content     = new(string)
 	RejectedStr = new(string)
-
-	urls      = new([]string)
-	rateLimit int64
-	Mirror    = new(bool)
-	Reject    = new([]string)
-
-	Excludes = new([]string)
-
-	flagNames = make(map[Flag]string)
+	Convert     = new(bool)
+	urls        = new([]string)
+	rateLimit   int64
+	Mirror      = new(bool)
+	Reject      = new([]string)
+	Excludes    = new([]string)
+	flagNames   = make(map[Flag]string)
 )
 
 var flagsValues = map[int]any{}
@@ -78,6 +76,8 @@ func SetupFlagName() {
 	flagNames[MIRROR_FLAG] = "mirror"
 	flagNames[REJECT_FLAG] = "reject"
 	flagNames[EXCLUDE_FLAG] = "exclude"
+	flagNames[CONVERT_FLAG] = "convert-links"
+
 }
 
 func InitFlagValues() {
@@ -87,6 +87,7 @@ func InitFlagValues() {
 	flagsValues[CONTENT_FLAG] = Content
 	flagsValues[REJECT_FLAG] = Reject
 	flagsValues[EXCLUDE_FLAG] = Excludes
+	flagsValues[CONVERT_FLAG] = Convert
 
 	limited := *RateLimit != ""
 
@@ -214,4 +215,16 @@ func IsMirror() bool {
 
 func SetOutputPath(path string) {
 	flagsValues[PATH_FLAG] = &path
+}
+
+func CheckFlags() error {
+	if Provided(REJECT_FLAG) || Provided(EXCLUDE_FLAG) || Provided(CONVERT_FLAG) && !*Mirror {
+		return fmt.Errorf("should specify mirror flag: --mirror")
+	}
+
+	if Provided(MIRROR_FLAG) && Provided(INPUT_FLAG) {
+		return fmt.Errorf("mirror and input cannot go alongside")
+	}
+
+	return nil
 }

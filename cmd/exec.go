@@ -32,9 +32,10 @@ func init() {
 	rootCmd.Flags().StringVar(flag.RateLimit, flag.GetFlagName(flag.RATELIMIT_FLAG), "", "Limit the download speed (e.g., 400k or 2M)")
 	rootCmd.Flags().BoolVarP(flag.Background, flag.GetFlagName(flag.BACKGROUND_FLAG), "B", false, "Download the file in the background")
 	rootCmd.Flags().StringVarP(flag.Input, flag.GetFlagName(flag.INPUT_FLAG), "i", "", "Downloading different files should be possible asynchronously")
-	rootCmd.Flags().BoolVarP(flag.Mirror, flag.GetFlagName(flag.MIRROR_FLAG), "", false, "Enables site mirroring to download and locally replicate a complete website, adjusting all internal links for offline navigation. Useful for offline content access and backup.")
+	rootCmd.Flags().BoolVar(flag.Mirror, flag.GetFlagName(flag.MIRROR_FLAG), true, "Enables site mirroring to download and locally replicate a complete website, adjusting all internal links for offline navigation. Useful for offline content access and backup.")
 	rootCmd.Flags().StringSliceVarP(flag.Reject, flag.GetFlagName(flag.REJECT_FLAG), "R", []string{}, "Define a list of file suffixes to avoid")
 	rootCmd.Flags().StringSliceVarP(flag.Excludes, flag.GetFlagName(flag.EXCLUDE_FLAG), "X", []string{}, "Define a list of directory to ignore")
+	rootCmd.Flags().BoolVar(flag.Convert, flag.GetFlagName(flag.CONVERT_FLAG), false, "convert the links so that they can be viewed offline")
 
 	state.InitNewState()
 }
@@ -45,6 +46,10 @@ var rootCmd = &cobra.Command{
 	Long:  `This project aims to recreate some functionalities of wget using the Go programming language.`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		flag.InitFlagValues()
+		err := flag.CheckFlags()
+		if err != nil {
+			return err
+		}
 		if len(args) == 0 && *flag.GetFlagValue(flag.INPUT_FLAG).(*string) == "" {
 			return fmt.Errorf("invalid argument")
 		}
@@ -98,9 +103,6 @@ func Exec(cmd *cobra.Command, args []string) func() {
 			go func(url string) {
 				defer wg.Done()
 				defaultExec(p, url)
-				// if err != nil {
-				// 	fmt.Printf("error: %v\n", err)
-				// }
 			}(url)
 		}
 		p.Wait()
@@ -151,7 +153,7 @@ func MirrorExec(p *mpb.Progress, wg *sync.WaitGroup, u string) {
 
 	go ExtractURLs(wg)
 	go processLinks(p, wg)
-	go processMirroring(wg)
+	go convertLinks(wg)
 	wg.Add(1) // Add to wait group for the recursive function
 	go func() {
 		// defer wg.Done() // Signal completion when done
@@ -200,8 +202,12 @@ func mirrorRecursive(p *mpb.Progress, u string) {
 	defaultExec(p, u)
 }
 
-func processMirroring(wg *sync.WaitGroup) {
+func convertLinks(wg *sync.WaitGroup) {
 	for fileToProcess := range state.GetStates().Mirror.FileToProcess {
+		if !flag.Provided(flag.CONVERT_FLAG) {
+			wg.Done()
+			continue
+		}
 		f, err := os.Open(fileToProcess.Path)
 		if err != nil {
 			// fmt.Printf("error opening file: %v", err)

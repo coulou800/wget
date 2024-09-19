@@ -10,7 +10,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/main.go",
-            "args": ["https://theuselessweb.com/","--mirror"]
+            "args": ["https://theuselessweb.com/","--mirror","-i","links"]
         }
     ]
 }
