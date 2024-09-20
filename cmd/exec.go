@@ -82,22 +82,21 @@ func Exec(cmd *cobra.Command, args []string) func() {
 
 	if flag.IsMirror() {
 		return func() {
-			startMsg := fmt.Sprintf("#Start time: %s\n", utils.GetCurrentTime())
+			startMsg := fmt.Sprintf("#Started at: %s", utils.GetCurrentTime())
 			fmt.Println(startMsg)
 			// wg.Add(1)
 			MirrorExec(p, &wg, flag.GetUrls()[0])
 			p.Wait()
 
-			endMsg := fmt.Sprintf("#End time: %s\n", utils.GetCurrentTime())
+			endMsg := fmt.Sprintf("#Finished at: %s\n", utils.GetCurrentTime())
 			fmt.Println(endMsg)
 		}
 	}
 
 	return func() {
-		startMsg := fmt.Sprintf("#Start time: %s\n", utils.GetCurrentTime())
+		startMsg := fmt.Sprintf("#Started at: %s", utils.GetCurrentTime())
 		fmt.Println(startMsg)
 		fmt.Printf("#Files: %v\n", len(flag.GetUrls()))
-
 		for _, url := range flag.GetUrls() {
 			wg.Add(1)
 			go func(url string) {
@@ -107,7 +106,7 @@ func Exec(cmd *cobra.Command, args []string) func() {
 		}
 		p.Wait()
 
-		endMsg := fmt.Sprintf("#End time: %s\n", utils.GetCurrentTime())
+		endMsg := fmt.Sprintf("#Finished at: %s", utils.GetCurrentTime())
 		fmt.Println(endMsg)
 	}
 }
@@ -155,20 +154,13 @@ func MirrorExec(p *mpb.Progress, wg *sync.WaitGroup, u string) {
 	go processLinks(p, wg)
 	go convertLinks(wg)
 	go handleAbort(wg)
-	wg.Add(1) // Add to wait group for the recursive function
+	wg.Add(1)
 	go func() {
-		// defer wg.Done() // Signal completion when done
-		mirrorRecursive(p, u)
+		mirror(p, u)
 	}()
-	// Wait for all goroutines to finish
-	// wg.Wait()
-
-	// Close channels after all processing is done
-	// close(state.GetStates().Mirror.Links)
-	// close(state.GetStates().Mirror.FileToProcess)
 }
 
-func mirrorRecursive(p *mpb.Progress, u string) {
+func mirror(p *mpb.Progress, u string) {
 
 	if dirIgnored(u) {
 		state.Abort(u)
@@ -216,7 +208,6 @@ func convertLinks(wg *sync.WaitGroup) {
 		}
 		f, err := os.Open(fileToProcess.Path)
 		if err != nil {
-			// fmt.Printf("error opening file: %v", err)
 			wg.Done()
 			continue
 		}
@@ -225,7 +216,6 @@ func convertLinks(wg *sync.WaitGroup) {
 		baseUrl := fileToProcess.Url
 		doc, err := html.Parse(f)
 		if err != nil || fileExt != ".html" {
-			// fmt.Printf("error parsing HTML: %v", err)
 			wg.Done()
 			continue
 		}
@@ -259,24 +249,18 @@ func convertLinks(wg *sync.WaitGroup) {
 
 		err = os.MkdirAll(filepath.Dir(outputPath), 0755)
 		if err != nil {
-			// fmt.Printf("error creating directories for %s: %v", outputPath, err)
 			wg.Done()
-
 			continue
 		}
 
 		file, err := os.OpenFile(outputPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 		if err != nil {
-			// fmt.Printf("error opening file %s: %v", outputPath, err)
 			wg.Done()
-
 			continue
 		}
 
-		// Write the modified HTML
 		err = html.Render(file, doc)
 		if err != nil {
-			// fmt.Printf("error writing HTML to file %s: %v", outputPath, err)
 			wg.Done()
 
 			continue
@@ -293,7 +277,6 @@ func getLinks(r io.Reader) []string {
 	content, _ := io.ReadAll(r)
 	doc, err := html.Parse(bytes.NewReader(content))
 	if err != nil {
-		// fmt.Printf("Error parsing HTML: %v\n", err)
 		return nil
 	}
 
@@ -336,8 +319,7 @@ func processLinks(p *mpb.Progress, wg *sync.WaitGroup) {
 		if absoluteLink != "" && utils.IsSameDomain(baseUrl, absoluteLink) {
 			wg.Add(1)
 			go func(link string) {
-				// defer wg.Done() // Ensure to signal completion
-				mirrorRecursive(p, link)
+				mirror(p, link)
 			}(absoluteLink)
 		}
 	}
@@ -346,7 +328,6 @@ func processLinks(p *mpb.Progress, wg *sync.WaitGroup) {
 func ExtractURLs(wg *sync.WaitGroup) {
 	for e := range state.GetStates().Mirror.ReadyToExtract {
 		f, _ := os.Open(e.Path)
-		// content, _ := io.ReadAll(f)
 		links := getLinks(f)
 
 		for _, l := range links {
@@ -377,7 +358,6 @@ func dirIgnored(s string) bool {
 	parsedUrl, _ := url.Parse(s)
 	dirToIgnore := *flag.GetFlagValue(flag.EXCLUDE_FLAG).(*[]string)
 	for _, rejectedDir := range dirToIgnore {
-		// println(rejectedExt)
 		if utils.PathHasDir(rejectedDir, parsedUrl.Path) {
 			return true
 		}

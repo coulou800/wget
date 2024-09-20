@@ -10,7 +10,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/main.go",
-            "args": ["https://trypap.com","--mirror","-R","png"]
+            "args": ["-i","links"]
         }
     ]
 }

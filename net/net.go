@@ -73,7 +73,7 @@ func NewRateLimitedReader(r io.Reader, limit int64) io.Reader {
 	}
 }
 
-func extIgnored(u string, f FileInfos) bool {
+func extIgnored(f FileInfos) bool {
 	fileExt := strings.TrimPrefix(filepath.Ext(f.FileName), ".")
 	ext := *flag.GetFlagValue(flag.REJECT_FLAG).(*[]string)
 
@@ -93,21 +93,30 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 	req.Header.Add("User-Agent", userAgent)
 	resp, err := client.Do(req)
 	if err != nil {
+		errMsg := fmt.Errorf("couldn't get %s. reason: %v", u, err)
+		fmt.Printf("%v\n\n", errMsg)
+		if flag.IsMirror() {
+			state.Abort(u)
+		}
 		return
 	}
 	defer resp.Body.Close()
 
 	var added bool
 
-	if extIgnored(u, fileInfos) {
-		state.Abort(u)
+	if extIgnored(fileInfos) {
+		if flag.IsMirror() {
+			state.Abort(u)
+		}
 		return
 	}
 
 	if resp.StatusCode != 200 {
 		errMsg := fmt.Errorf("couldn't get %s. reason: %v", u, resp.Status)
 		fmt.Printf("%v\n\n", errMsg)
-		state.Abort(u)
+		if flag.IsMirror() {
+			state.Abort(u)
+		}
 		return
 	}
 
@@ -169,7 +178,6 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 		}
 	}
 
-	// Check if running in background
 	if state.IsBackground() {
 		limitedReader := NewRateLimitedReader(resp.Body, speedLimit)
 		_, err = io.Copy(out_file, limitedReader)
@@ -181,7 +189,6 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 		processFile()
 
 	} else {
-		// Foreground logic with progress bar
 		convertedLenght := utils.ConvertedLenghtStr(contentLength)
 
 		bar := p.AddBar(contentLength,

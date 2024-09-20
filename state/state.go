@@ -55,10 +55,6 @@ func MapUrlPath(f FileToProcess) {
 	states.Mirror.URLMap.Store(f.Url, f.Path)
 }
 
-// func GetPath() string {
-// 	return
-// }
-
 func IsBackground() bool {
 	return os.Getenv("WGET_BACKGROUND") == "1"
 }

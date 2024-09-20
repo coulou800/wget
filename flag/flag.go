@@ -182,14 +182,13 @@ func SetupUrls(args []string) {
 	}
 
 	if len(u) == 0 {
-		os.Stderr.WriteString("please provide valid url")
+		os.Stderr.WriteString("please provide valid url\n")
 		os.Exit(1)
 	}
 	urls = &u
 
 }
 
-// use this function to get the rate limit in numerical value
 func GetRateLimit() int64 {
 	return rateLimit
 }
