@@ -222,7 +222,7 @@ func CheckFlags() error {
 		return fmt.Errorf("should specify mirror flag: --mirror")
 	}
 
-	if Provided(MIRROR_FLAG) && Provided(INPUT_FLAG) {
+	if *Mirror && Provided(INPUT_FLAG) {
 		return fmt.Errorf("mirror and input cannot go alongside")
 	}
 

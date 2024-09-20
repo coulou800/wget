@@ -25,8 +25,8 @@ type FileToProcess struct {
 }
 
 type States struct {
-	Mirror     MirrorState
-	Background bool
+	Mirror  MirrorState
+	Aborted chan string
 }
 
 var states States
@@ -47,7 +47,7 @@ func InitNewState() {
 			ReadyToExtract: make(chan FileToProcess),
 			URLMap:         &sync.Map{},
 		},
-		Background: false,
+		Aborted: make(chan string),
 	}
 }
 
@@ -97,4 +97,8 @@ func GetReadyExtract() chan FileToProcess {
 
 func AddToReadyExtract(f FileToProcess) {
 	states.Mirror.ReadyToExtract <- f
+}
+
+func Abort(u string) {
+	states.Aborted <- u
 }

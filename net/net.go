@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"wget/flag"
@@ -72,6 +73,17 @@ func NewRateLimitedReader(r io.Reader, limit int64) io.Reader {
 	}
 }
 
+func extIgnored(u string, f FileInfos) bool {
+	fileExt := strings.TrimPrefix(filepath.Ext(f.FileName), ".")
+	ext := *flag.GetFlagValue(flag.REJECT_FLAG).(*[]string)
+
+	extRejected := slices.ContainsFunc(ext, func(e string) bool {
+		return strings.HasSuffix(f.ContentType, e) || e == fileExt
+	})
+
+	return extRejected
+}
+
 func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 	client := &http.Client{}
 	fileInfos := GetFileInfos(u)
@@ -87,9 +99,15 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 
 	var added bool
 
+	if extIgnored(u, fileInfos) {
+		state.Abort(u)
+		return
+	}
+
 	if resp.StatusCode != 200 {
 		errMsg := fmt.Errorf("couldn't get %s. reason: %v", u, resp.Status)
 		fmt.Printf("%v\n\n", errMsg)
+		state.Abort(u)
 		return
 	}
 

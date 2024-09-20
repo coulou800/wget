@@ -32,7 +32,7 @@ func init() {
 	rootCmd.Flags().StringVar(flag.RateLimit, flag.GetFlagName(flag.RATELIMIT_FLAG), "", "Limit the download speed (e.g., 400k or 2M)")
 	rootCmd.Flags().BoolVarP(flag.Background, flag.GetFlagName(flag.BACKGROUND_FLAG), "B", false, "Download the file in the background")
 	rootCmd.Flags().StringVarP(flag.Input, flag.GetFlagName(flag.INPUT_FLAG), "i", "", "Downloading different files should be possible asynchronously")
-	rootCmd.Flags().BoolVar(flag.Mirror, flag.GetFlagName(flag.MIRROR_FLAG), true, "Enables site mirroring to download and locally replicate a complete website, adjusting all internal links for offline navigation. Useful for offline content access and backup.")
+	rootCmd.Flags().BoolVar(flag.Mirror, flag.GetFlagName(flag.MIRROR_FLAG), false, "Enables site mirroring to download and locally replicate a complete website, adjusting all internal links for offline navigation. Useful for offline content access and backup.")
 	rootCmd.Flags().StringSliceVarP(flag.Reject, flag.GetFlagName(flag.REJECT_FLAG), "R", []string{}, "Define a list of file suffixes to avoid")
 	rootCmd.Flags().StringSliceVarP(flag.Excludes, flag.GetFlagName(flag.EXCLUDE_FLAG), "X", []string{}, "Define a list of directory to ignore")
 	rootCmd.Flags().BoolVar(flag.Convert, flag.GetFlagName(flag.CONVERT_FLAG), false, "convert the links so that they can be viewed offline")
@@ -154,6 +154,7 @@ func MirrorExec(p *mpb.Progress, wg *sync.WaitGroup, u string) {
 	go ExtractURLs(wg)
 	go processLinks(p, wg)
 	go convertLinks(wg)
+	go handleAbort(wg)
 	wg.Add(1) // Add to wait group for the recursive function
 	go func() {
 		// defer wg.Done() // Signal completion when done
@@ -168,6 +169,11 @@ func MirrorExec(p *mpb.Progress, wg *sync.WaitGroup, u string) {
 }
 
 func mirrorRecursive(p *mpb.Progress, u string) {
+
+	if dirIgnored(u) {
+		state.Abort(u)
+		return
+	}
 
 	state.SetVisitedLink(u)
 	limiter := state.GetLimiter()
@@ -322,34 +328,6 @@ func isLinkAttribute(attr string) bool {
 	return false
 }
 
-func ignored(u string) bool {
-	parsedUrl, _ := url.Parse(u)
-	path := parsedUrl.Path
-
-	// Check if the file extension is in the reject list
-	fileExt := strings.TrimPrefix(strings.ToLower(filepath.Ext(parsedUrl.Path)), ".")
-	ext := *flag.GetFlagValue(flag.REJECT_FLAG).(*[]string)
-	dirToIgnore := *flag.GetFlagValue(flag.EXCLUDE_FLAG).(*[]string)
-
-	if fileExt != "" {
-		for _, rejectedExt := range ext {
-			// println(rejectedExt)
-			if fileExt == rejectedExt {
-				return true
-			}
-		}
-	}
-
-	for _, rejectedDir := range dirToIgnore {
-		// println(rejectedExt)
-		if utils.PathHasDir(rejectedDir, path) {
-			return true
-		}
-	}
-
-	return false
-}
-
 func processLinks(p *mpb.Progress, wg *sync.WaitGroup) {
 	baseUrl := state.GetBaseUrl()
 	for link := range state.GetStates().Mirror.Links {
@@ -387,4 +365,22 @@ func ExtractURLs(wg *sync.WaitGroup) {
 
 		state.AddFileToProcess(e)
 	}
+}
+
+func handleAbort(wg *sync.WaitGroup) {
+	for range state.GetStates().Aborted {
+		wg.Done()
+	}
+}
+
+func dirIgnored(s string) bool {
+	parsedUrl, _ := url.Parse(s)
+	dirToIgnore := *flag.GetFlagValue(flag.EXCLUDE_FLAG).(*[]string)
+	for _, rejectedDir := range dirToIgnore {
+		// println(rejectedExt)
+		if utils.PathHasDir(rejectedDir, parsedUrl.Path) {
+			return true
+		}
+	}
+	return false
 }
