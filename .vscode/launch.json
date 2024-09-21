@@ -10,7 +10,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/main.go",
-            "args": ["-i","links"]
+            "args": ["--mirror","https://oct82.com/","--rate-limit","20.6k"]
         }
     ]
 }

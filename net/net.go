@@ -99,6 +99,9 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 	req, _ := http.NewRequest("GET", u, nil)
 	req.Header.Add("User-Agent", userAgent)
 	resp, err := client.Do(req)
+	if contentLength == 0 {
+		contentLength = resp.ContentLength
+	}
 	if err != nil {
 		errMsg := fmt.Errorf("couldn't get %s. reason: %v", u, err)
 		fmt.Printf("%v\n\n", errMsg)
@@ -144,18 +147,15 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 	var path string
 
 	parsedURL, _ := url.Parse(u)
-	if flag.IsMirror() {
-		filePath := filepath.Join(*output_path, filepath.Base(parsedURL.Path))
-		if filePath == *output_path {
-			filename = "index.html"
-			filePath = filepath.Join(*output_path, filename)
-		} else {
-			filePath = filepath.Join(*output_path, parsedURL.Path)
-		}
-		path = filePath
+	// if flag.IsMirror() {
+	filePath := filepath.Join(*output_path, filepath.Base(parsedURL.Path))
+	if filePath == *output_path {
+		filename = "index.html"
+		filePath = filepath.Join(*output_path, filename)
 	} else {
-		path = filepath.Join(*output_path, filename)
+		filePath = filepath.Join(*output_path, parsedURL.Path)
 	}
+	path = filePath
 
 	if strings.Contains(fileInfos.ContentType, "text/html") && filepath.Ext(path) != ".html" {
 		path += ".html"
@@ -167,8 +167,6 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 	}
 	defer out_file.Close()
 
-	// Common processing logic (for both foreground and background modes)
-	// This will ensure file processing works even if there's no progress bar (background mode)
 	processFile := func() {
 		if flag.IsMirror() && !added {
 			f := state.FileToProcess{
@@ -233,10 +231,14 @@ func GetWithSpeedLimit(p *mpb.Progress, u string, speedLimit int64) {
 		reader := bar.ProxyReader(resp.Body)
 		limitedReader := NewRateLimitedReader(reader, speedLimit)
 
-		_, err = io.Copy(out_file, limitedReader)
+		n, err := io.Copy(out_file, limitedReader)
 		if err != nil {
-			fmt.Println(err)
+			bar.SetTotal(n, true)
 			return
+		}
+
+		if contentLength < 0 {
+			bar.SetTotal(n, true)
 		}
 
 		processFile()
@@ -262,6 +264,10 @@ func GetFileInfos(url string) FileInfos {
 
 	contentLength := resp.ContentLength
 	contentType := resp.Header.Get("Content-Type")
+
+	if contentLength < 0 {
+		contentLength = 0
+	}
 
 	var filename string
 	var defaultFilename string

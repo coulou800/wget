@@ -94,6 +94,7 @@ func ConvertedLenghtStr(val int64) string {
 }
 
 func ConvertedRateLimit(valStr string) int64 {
+	lim := int64(math.MaxInt64)
 	errMsg := "invalid rate limit. usage: --rate-limit 200k"
 	if len(valStr) < 2 {
 		fmt.Println(errMsg)
@@ -109,16 +110,16 @@ func ConvertedRateLimit(valStr string) int64 {
 
 	switch m {
 	case 'k':
-		return int64(val * 1000)
+		lim = int64(val * 1024)
 	case 'm':
-		return int64(val * math.Pow(1000, 2))
+		lim = int64(val * math.Pow(1024, 2))
 	case 'g':
-		return int64(val * math.Pow(1000, 3))
+		lim = int64(val * math.Pow(1024, 3))
 	default:
 		fmt.Println(errMsg)
 		os.Exit(1)
 	}
-	return -1
+	return lim
 }
 
 func ExtractURLs(baseUrl *url.URL, content []byte) []string {
