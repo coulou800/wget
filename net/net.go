@@ -3,6 +3,7 @@ package net
 import (
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -33,7 +34,6 @@ func (r *rateLimitedReader) Completed() bool {
 }
 
 func (r *rateLimitedReader) Read(p []byte) (n int, err error) {
-
 	now := time.Now()
 	elapsed := now.Sub(r.lastTime)
 
@@ -43,26 +43,33 @@ func (r *rateLimitedReader) Read(p []byte) (n int, err error) {
 		elapsed = 0
 	}
 
-	allowedBytes := r.rateLimit - r.bytesRead
-	if int64(len(p)) > allowedBytes && allowedBytes > 0 {
-		p = p[:allowedBytes]
+	allowedBytes := r.rateLimit * elapsed.Nanoseconds() / int64(time.Second)
+
+	bytesToRead := allowedBytes - r.bytesRead
+
+	if bytesToRead <= 0 {
+		sleepTime := time.Duration(-bytesToRead * int64(time.Second) / r.rateLimit)
+		time.Sleep(sleepTime)
+		r.bytesRead = 0
+		r.lastTime = time.Now()
+		return 0, nil
+	}
+
+	if int64(len(p)) > bytesToRead {
+		p = p[:bytesToRead]
 	}
 
 	n, err = r.reader.Read(p)
-	if err == io.EOF {
-		r.completed = true
-	}
+
 	r.bytesRead += int64(n)
-	if allowedBytes > 0 {
-		if r.bytesRead >= r.rateLimit {
-			time.Sleep(r.timeWindow - elapsed)
-		}
-	}
 
 	return n, err
 }
 
 func NewRateLimitedReader(r io.Reader, limit int64) io.Reader {
+	if limit <= 0 {
+		limit = math.MaxInt64
+	}
 	return &rateLimitedReader{
 		reader:     r,
 		rateLimit:  limit,
@@ -278,11 +285,10 @@ func GetFileInfos(url string) FileInfos {
 		filename = defaultFilename
 	}
 
-	filename, ok := params["filename"]
-	if !ok || filename == "" {
-		filename = defaultFilename
+	f, ok := params["filename"]
+	if ok && f != "" {
+		filename = f
 	}
-
 	return FileInfos{
 		ContentType:   contentType,
 		ContentLenght: contentLength,
